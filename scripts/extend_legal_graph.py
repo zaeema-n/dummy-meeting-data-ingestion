@@ -11,9 +11,16 @@ This file currently implements only the first setup step:
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from datetime import date
 from typing import Dict
 from uuid import uuid4
+
+# Allow direct execution: `python extend_legal_graph.py` from scripts/ directory.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from models.schema import (
     AddRelation,
@@ -83,7 +90,7 @@ DEPARTMENT_CODES_BY_NAME = {
 
 # New nodes to create in graph.
 NEW_NODES = {
-    "UGC_Act": {"name": "Universities Act", "major": "Document", "minor": "act"},
+    "UGC_Act": {"name": "Universities Act, No. 16 of 1978", "major": "Document", "minor": "act"},
     "Comm_Mtg": {"name": "Commission Meeting", "major": "Event", "minor": "meeting"},
     "TVEC_Act": {
         "name": "Tertiary and Vocational Education Act, No. 20 of 1990",
@@ -97,7 +104,7 @@ NEW_NODES = {
         "minor": "act",
     },
     "Board_Mtg": {"name": "Board Meeting", "major": "Event", "minor": "meeting"},
-    "DM_Act": {"name": "DM Act", "major": "Document", "minor": "act"},
+    "DM_Act": {"name": "Disaster Management Act, No. 13 of 2005", "major": "Document", "minor": "act"},
     "Council_Mtg": {"name": "Council Meeting", "major": "Event", "minor": "meeting"},
 }
 
@@ -337,13 +344,16 @@ def build_relation(relationship_name: str, source_id: str, target_id: str) -> Ad
     )
 
 
-async def write_relationship_batches(
-    read_service: ReadService,
+async def write_relationships(
     ingestion_service: IngestionService,
     all_entity_ids: Dict[str, str],
 ) -> None:
-    """Write all graph edges, grouped by source entity."""
-    relationships_by_source: Dict[str, list[AddRelation]] = {}
+    """
+    Write all graph edges.
+
+    One PUT per relationship: OpenGIN currently overwrites duplicate keys
+    (e.g. two MANDATES) when sent in a single update payload.
+    """
     for source_key, relationship_name, target_key in EDGE_DEFINITIONS:
         source_id = all_entity_ids.get(source_key)
         target_id = all_entity_ids.get(target_key)
@@ -353,16 +363,15 @@ async def write_relationship_batches(
             raise RuntimeError(f"Missing target id for key={target_key}")
 
         relation = build_relation(relationship_name, source_id, target_id)
-        relationships_by_source.setdefault(source_key, []).append(relation)
-
-    for source_key, relationships in relationships_by_source.items():
-        source_id = all_entity_ids[source_key]
-        payload = EntityCreate(
-            id=source_id,
-            relationships=relationships,
-        )
+        payload = EntityCreate(id=source_id, relationships=[relation])
         await ingestion_service.update_entity(source_id, payload)
-        logger.info("Updated %s id=%s with %d relationships", source_key, source_id, len(relationships))
+        logger.info(
+            "Updated %s id=%s: %s -> %s",
+            source_key,
+            source_id,
+            relationship_name,
+            target_key,
+        )
 
 
 async def run() -> None:
@@ -390,8 +399,8 @@ async def run() -> None:
         all_entity_ids.update(ministry_ids)
         all_entity_ids.update(department_ids)
         all_entity_ids.update(created_node_ids)
-        await write_relationship_batches(read_service, ingestion_service, all_entity_ids)
-        logger.info("Wrote relationship batches successfully.")
+        await write_relationships(ingestion_service, all_entity_ids)
+        logger.info("Wrote %d relationships successfully.", len(EDGE_DEFINITIONS))
 
         # Prevent lint warnings for currently-unused service instances.
         _ = (ingestion_service, created_node_ids, all_entity_ids)
