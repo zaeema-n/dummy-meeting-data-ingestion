@@ -357,12 +357,8 @@ async def write_relationship_batches(
 
     for source_key, relationships in relationships_by_source.items():
         source_id = all_entity_ids[source_key]
-        source_entity = await resolve_entity_by_id(read_service, source_id)
-        source_entity_name = decode_entity_name(source_entity.name)
         payload = EntityCreate(
             id=source_id,
-            kind=source_entity.kind,
-            name=NameValue(value=source_entity_name, startTime=TODAY),
             relationships=relationships,
         )
         await ingestion_service.update_entity(source_id, payload)
