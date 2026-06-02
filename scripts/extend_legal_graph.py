@@ -14,7 +14,7 @@ import asyncio
 from datetime import date
 from typing import Dict
 
-from models.schema import Entity, Kind, Relation
+from models.schema import Entity, EntityCreate, Kind, NameValue, Relation
 from services.ingestion_service import IngestionService
 from services.read_service import ReadService
 from utils.http_client import http_client
@@ -33,23 +33,30 @@ PERSON_ROOT = {
 
 
 # Expected ministry names discovered from PERSON_ROOT via AS_MINISTER.
-EXPECTED_MINISTRIES = {
-    "MOE": "Minister of Education, Higher Education and Vocational Education",
-    "MOJ": "Minister of Justice and National Integration",
-    "MOD": "Minister of Defence",
+EXPECTED_MINISTRIES = [
+    "Minister of Education, Higher Education and Vocational Education",
+    "Minister of Justice and National Integration",
+    "Minister of Defence",
+]
+
+# Short ministry references used by EDGE_DEFINITIONS.
+MINISTRY_CODES_BY_NAME = {
+    "Minister of Education, Higher Education and Vocational Education": "MOE",
+    "Minister of Justice and National Integration": "MOJ",
+    "Minister of Defence": "MOD",
 }
 
 
 # Expected departments discovered from each ministry via AS_DEPARTMENT.
 EXPECTED_DEPARTMENTS_BY_MINISTRY = {
-    "MOE": [
+    "Minister of Education, Higher Education and Vocational Education": [
         "University Grants Commission",
         "Tertiary and Vocational Education Commission",
     ],
-    "MOJ": [
+    "Minister of Justice and National Integration": [
         "Office on Missing Persons",
     ],
-    "MOD": [
+    "Minister of Defence": [
         "National Disaster Management Council",
     ],
 }
@@ -132,7 +139,8 @@ async def resolve_entity_by_id(read_service: ReadService, entity_id: str) -> Ent
 
 async def resolve_ministry_ids_from_person(read_service: ReadService) -> Dict[str, str]:
     """
-    Resolve MOE/MOJ/MOD ministry IDs from person -> AS_MINISTER relations at TODAY.
+    Resolve ministry IDs from person -> AS_MINISTER relations at TODAY.
+    Returns ids keyed by short ministry codes (MOE/MOJ/MOD).
     """
     person = await resolve_entity_by_name(
         read_service,
@@ -151,24 +159,120 @@ async def resolve_ministry_ids_from_person(read_service: ReadService) -> Dict[st
             f"No AS_MINISTER relations found for person id={person.id} at activeAt={TODAY}"
         )
 
-    expected_by_name: Dict[str, str] = {
-        expected_name: code for code, expected_name in EXPECTED_MINISTRIES.items()
-    }
-    mapped: Dict[str, str] = {}
+    mapped_by_name: Dict[str, str] = {}
     for rel in minister_rels:
         ministry = await resolve_entity_by_id(read_service, rel.relatedEntityId)
-        code = expected_by_name.get(ministry.name)
-        if code:
-            mapped[code] = ministry.id
+        if ministry.name in EXPECTED_MINISTRIES:
+            mapped_by_name[ministry.name] = ministry.id
 
-    missing_keys = [code for code in EXPECTED_MINISTRIES if code not in mapped]
+    missing_ministries = [name for name in EXPECTED_MINISTRIES if name not in mapped_by_name]
 
-    if missing_keys:
+    if missing_ministries:
         raise RuntimeError(
             "Missing expected ministries from AS_MINISTER traversal: "
-            + ", ".join(f"{code}: {EXPECTED_MINISTRIES[code]}" for code in missing_keys)
+            + ", ".join(missing_ministries)
         )
-    return mapped
+
+    mapped_by_code: Dict[str, str] = {}
+    for ministry_name, ministry_id in mapped_by_name.items():
+        ministry_code = MINISTRY_CODES_BY_NAME[ministry_name]
+        mapped_by_code[ministry_code] = ministry_id
+
+    return mapped_by_code
+
+
+async def resolve_department_ids_from_ministries(
+    read_service: ReadService,
+    ministry_ids: Dict[str, str],
+) -> Dict[str, str]:
+    """
+    Resolve departments via ministry -> AS_DEPARTMENT relations at TODAY.
+    """
+    department_ids_by_name: Dict[str, str] = {}
+
+    for ministry_name, expected_department_names in EXPECTED_DEPARTMENTS_BY_MINISTRY.items():
+        ministry_id = ministry_ids.get(ministry_name)
+        if not ministry_id:
+            raise RuntimeError(f"Missing ministry id for {ministry_name}")
+
+        department_rels = await read_service.fetch_relations(
+            ministry_id,
+            Relation(name="AS_DEPARTMENT", activeAt=TODAY),
+        )
+        if not department_rels:
+            raise RuntimeError(
+                f"No AS_DEPARTMENT relations found for {ministry_name} id={ministry_id}"
+            )
+
+        expected_name_set = set(expected_department_names)
+        found_names = set()
+        for rel in department_rels:
+            department = await resolve_entity_by_id(read_service, rel.relatedEntityId)
+            if department.name not in expected_name_set:
+                continue
+            department_ids_by_name[department.name] = department.id
+            found_names.add(department.name)
+
+        missing_names = sorted(expected_name_set - found_names)
+        if missing_names:
+            raise RuntimeError(
+                f"Missing expected AS_DEPARTMENT targets for {ministry_name}: {missing_names}"
+            )
+
+    expected_departments = {
+        department_name
+        for department_names in EXPECTED_DEPARTMENTS_BY_MINISTRY.values()
+        for department_name in department_names
+    }
+    missing_departments = sorted(expected_departments - set(department_ids_by_name.keys()))
+    if missing_departments:
+        raise RuntimeError(f"Missing resolved departments: {missing_departments}")
+
+    return department_ids_by_name
+
+
+def extract_entity_id_from_create_response(response: object) -> str:
+    """Best-effort extraction of created entity id from API response payload."""
+    if not isinstance(response, dict):
+        return ""
+
+    # Common OpenGIN-style wrapper: {"body": {...}}
+    body = response.get("body")
+    if isinstance(body, dict):
+        entity_id = body.get("id")
+        if isinstance(entity_id, str) and entity_id.strip():
+            return entity_id.strip()
+
+    # Some APIs may return id at top-level.
+    top_level_id = response.get("id")
+    if isinstance(top_level_id, str) and top_level_id.strip():
+        return top_level_id.strip()
+
+    return ""
+
+
+async def create_new_entities(ingestion_service: IngestionService) -> Dict[str, str]:
+    """
+    Create new Document/act and Event/meeting entities.
+    Returns ids keyed by NEW_NODES codes.
+    """
+    created_ids: Dict[str, str] = {}
+
+    for node_key, node in NEW_NODES.items():
+        payload = EntityCreate(
+            kind=Kind(major=node["major"], minor=node["minor"]),
+            name=NameValue(value=node["name"], startTime=TODAY),
+        )
+        response = await ingestion_service.create_entity(payload)
+        entity_id = extract_entity_id_from_create_response(response)
+        if not entity_id:
+            raise RuntimeError(
+                f"Failed to extract created id for {node_key}. Response={response}"
+            )
+        created_ids[node_key] = entity_id
+        logger.info("Created %s (%s) id=%s", node_key, node["name"], entity_id)
+
+    return created_ids
 
 
 async def run() -> None:
@@ -185,9 +289,16 @@ async def run() -> None:
         logger.info("Loaded %d edge definitions.", len(EDGE_DEFINITIONS))
         ministry_ids = await resolve_ministry_ids_from_person(read_service)
         logger.info("Resolved ministries from person traversal: %s", ministry_ids)
+        department_ids = await resolve_department_ids_from_ministries(
+            read_service,
+            ministry_ids,
+        )
+        logger.info("Resolved departments from minister traversal: %s", department_ids)
+        created_node_ids = await create_new_entities(ingestion_service)
+        logger.info("Created new entities: %s", created_node_ids)
 
         # Prevent lint warnings for currently-unused service instances.
-        _ = ingestion_service
+        _ = (ingestion_service, created_node_ids)
     finally:
         await http_client.close()
 
