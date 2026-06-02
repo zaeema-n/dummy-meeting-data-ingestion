@@ -13,8 +13,17 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from typing import Dict
+from uuid import uuid4
 
-from models.schema import Entity, EntityCreate, Kind, NameValue, Relation
+from models.schema import (
+    AddRelation,
+    AddRelationValue,
+    Entity,
+    EntityCreate,
+    Kind,
+    NameValue,
+    Relation,
+)
 from services.ingestion_service import IngestionService
 from services.read_service import ReadService
 from utils.http_client import http_client
@@ -59,6 +68,14 @@ EXPECTED_DEPARTMENTS_BY_MINISTRY = {
     "Minister of Defence": [
         "National Disaster Management Council",
     ],
+}
+
+# Short department references used by EDGE_DEFINITIONS.
+DEPARTMENT_CODES_BY_NAME = {
+    "University Grants Commission": "UGC",
+    "Tertiary and Vocational Education Commission": "TVEC",
+    "Office on Missing Persons": "OMP",
+    "National Disaster Management Council": "DMC",
 }
 
 
@@ -188,12 +205,13 @@ async def resolve_department_ids_from_ministries(
     """
     Resolve departments via ministry -> AS_DEPARTMENT relations at TODAY.
     """
-    department_ids_by_name: Dict[str, str] = {}
+    department_ids_by_code: Dict[str, str] = {}
 
     for ministry_name, expected_department_names in EXPECTED_DEPARTMENTS_BY_MINISTRY.items():
-        ministry_id = ministry_ids.get(ministry_name)
+        ministry_code = MINISTRY_CODES_BY_NAME[ministry_name]
+        ministry_id = ministry_ids.get(ministry_code)
         if not ministry_id:
-            raise RuntimeError(f"Missing ministry id for {ministry_name}")
+            raise RuntimeError(f"Missing ministry id for {ministry_name} ({ministry_code})")
 
         department_rels = await read_service.fetch_relations(
             ministry_id,
@@ -210,7 +228,10 @@ async def resolve_department_ids_from_ministries(
             department = await resolve_entity_by_id(read_service, rel.relatedEntityId)
             if department.name not in expected_name_set:
                 continue
-            department_ids_by_name[department.name] = department.id
+            department_code = DEPARTMENT_CODES_BY_NAME.get(department.name)
+            if not department_code:
+                continue
+            department_ids_by_code[department_code] = department.id
             found_names.add(department.name)
 
         missing_names = sorted(expected_name_set - found_names)
@@ -220,15 +241,15 @@ async def resolve_department_ids_from_ministries(
             )
 
     expected_departments = {
-        department_name
+        DEPARTMENT_CODES_BY_NAME[department_name]
         for department_names in EXPECTED_DEPARTMENTS_BY_MINISTRY.values()
         for department_name in department_names
     }
-    missing_departments = sorted(expected_departments - set(department_ids_by_name.keys()))
+    missing_departments = sorted(expected_departments - set(department_ids_by_code.keys()))
     if missing_departments:
         raise RuntimeError(f"Missing resolved departments: {missing_departments}")
 
-    return department_ids_by_name
+    return department_ids_by_code
 
 
 def extract_entity_id_from_create_response(response: object) -> str:
@@ -275,6 +296,56 @@ async def create_new_entities(ingestion_service: IngestionService) -> Dict[str, 
     return created_ids
 
 
+def build_relationship_id(source_id: str, relationship_name: str, target_id: str) -> str:
+    """Create new relationship id."""
+    _ = (source_id, relationship_name, target_id)
+    return str(uuid4())
+
+
+def build_relation(relationship_name: str, source_id: str, target_id: str) -> AddRelation:
+    relationship_id = build_relationship_id(source_id, relationship_name, target_id)
+    return AddRelation(
+        key=relationship_name,
+        value=AddRelationValue(
+            relatedEntityId=target_id,
+            startTime=TODAY,
+            id=relationship_id,
+            name=relationship_name,
+        ),
+    )
+
+
+async def write_relationship_batches(
+    read_service: ReadService,
+    ingestion_service: IngestionService,
+    all_entity_ids: Dict[str, str],
+) -> None:
+    """Write all graph edges, grouped by source entity."""
+    relationships_by_source: Dict[str, list[AddRelation]] = {}
+    for source_key, relationship_name, target_key in EDGE_DEFINITIONS:
+        source_id = all_entity_ids.get(source_key)
+        target_id = all_entity_ids.get(target_key)
+        if not source_id:
+            raise RuntimeError(f"Missing source id for key={source_key}")
+        if not target_id:
+            raise RuntimeError(f"Missing target id for key={target_key}")
+
+        relation = build_relation(relationship_name, source_id, target_id)
+        relationships_by_source.setdefault(source_key, []).append(relation)
+
+    for source_key, relationships in relationships_by_source.items():
+        source_id = all_entity_ids[source_key]
+        source_entity = await resolve_entity_by_id(read_service, source_id)
+        payload = EntityCreate(
+            id=source_id,
+            kind=source_entity.kind,
+            name=NameValue(value=source_entity.name, startTime=TODAY),
+            relationships=relationships,
+        )
+        await ingestion_service.update_entity(source_id, payload)
+        logger.info("Updated %s id=%s with %d relationships", source_key, source_id, len(relationships))
+
+
 async def run() -> None:
     """Bootstrap clients and print scaffold status."""
     await http_client.start()
@@ -296,9 +367,15 @@ async def run() -> None:
         logger.info("Resolved departments from minister traversal: %s", department_ids)
         created_node_ids = await create_new_entities(ingestion_service)
         logger.info("Created new entities: %s", created_node_ids)
+        all_entity_ids = {}
+        all_entity_ids.update(ministry_ids)
+        all_entity_ids.update(department_ids)
+        all_entity_ids.update(created_node_ids)
+        await write_relationship_batches(read_service, ingestion_service, all_entity_ids)
+        logger.info("Wrote relationship batches successfully.")
 
         # Prevent lint warnings for currently-unused service instances.
-        _ = (ingestion_service, created_node_ids)
+        _ = (ingestion_service, created_node_ids, all_entity_ids)
     finally:
         await http_client.close()
 
