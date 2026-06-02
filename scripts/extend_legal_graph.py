@@ -28,10 +28,12 @@ from services.ingestion_service import IngestionService
 from services.read_service import ReadService
 from utils.http_client import http_client
 from utils.logger import logger
+from utils.util_functions import Util
 
 
 # Runtime date used across relation/attribute temporal fields.
 TODAY = date.today().isoformat()
+NOW_TS = f"{TODAY}T00:00:00Z"
 
 
 # Root person used to discover ministries through AS_MINISTER.
@@ -154,6 +156,14 @@ async def resolve_entity_by_id(read_service: ReadService, entity_id: str) -> Ent
     return matches[0]
 
 
+def decode_entity_name(raw_name: str) -> str:
+    """Decode protobuf-encoded name payloads; fallback to raw string."""
+    decoded = Util.decode_protobuf_attribute_name(raw_name)
+    if decoded and decoded != "Unknown":
+        return decoded
+    return raw_name
+
+
 async def resolve_ministry_ids_from_person(read_service: ReadService) -> Dict[str, str]:
     """
     Resolve ministry IDs from person -> AS_MINISTER relations at TODAY.
@@ -179,8 +189,9 @@ async def resolve_ministry_ids_from_person(read_service: ReadService) -> Dict[st
     mapped_by_name: Dict[str, str] = {}
     for rel in minister_rels:
         ministry = await resolve_entity_by_id(read_service, rel.relatedEntityId)
-        if ministry.name in EXPECTED_MINISTRIES:
-            mapped_by_name[ministry.name] = ministry.id
+        ministry_name = decode_entity_name(ministry.name)
+        if ministry_name in EXPECTED_MINISTRIES:
+            mapped_by_name[ministry_name] = ministry.id
 
     missing_ministries = [name for name in EXPECTED_MINISTRIES if name not in mapped_by_name]
 
@@ -226,13 +237,14 @@ async def resolve_department_ids_from_ministries(
         found_names = set()
         for rel in department_rels:
             department = await resolve_entity_by_id(read_service, rel.relatedEntityId)
-            if department.name not in expected_name_set:
+            department_name = decode_entity_name(department.name)
+            if department_name not in expected_name_set:
                 continue
-            department_code = DEPARTMENT_CODES_BY_NAME.get(department.name)
+            department_code = DEPARTMENT_CODES_BY_NAME.get(department_name)
             if not department_code:
                 continue
             department_ids_by_code[department_code] = department.id
-            found_names.add(department.name)
+            found_names.add(department_name)
 
         missing_names = sorted(expected_name_set - found_names)
         if missing_names:
@@ -280,16 +292,26 @@ async def create_new_entities(ingestion_service: IngestionService) -> Dict[str, 
     created_ids: Dict[str, str] = {}
 
     for node_key, node in NEW_NODES.items():
+        unique_id = str(uuid4())
         payload = EntityCreate(
+            id=unique_id,
             kind=Kind(major=node["major"], minor=node["minor"]),
-            name=NameValue(value=node["name"], startTime=TODAY),
+            name=NameValue(
+                startTime=NOW_TS,
+                endTime="",
+                value=node["name"],
+            ),
+            created=NOW_TS,
+            terminated="",
+            metadata=[],
+            attributes=[],
+            relationships=[],
         )
         response = await ingestion_service.create_entity(payload)
         entity_id = extract_entity_id_from_create_response(response)
         if not entity_id:
-            raise RuntimeError(
-                f"Failed to extract created id for {node_key}. Response={response}"
-            )
+            # Some servers echo no body; fallback to the supplied id.
+            entity_id = unique_id
         created_ids[node_key] = entity_id
         logger.info("Created %s (%s) id=%s", node_key, node["name"], entity_id)
 
@@ -336,10 +358,11 @@ async def write_relationship_batches(
     for source_key, relationships in relationships_by_source.items():
         source_id = all_entity_ids[source_key]
         source_entity = await resolve_entity_by_id(read_service, source_id)
+        source_entity_name = decode_entity_name(source_entity.name)
         payload = EntityCreate(
             id=source_id,
             kind=source_entity.kind,
-            name=NameValue(value=source_entity.name, startTime=TODAY),
+            name=NameValue(value=source_entity_name, startTime=TODAY),
             relationships=relationships,
         )
         await ingestion_service.update_entity(source_id, payload)
