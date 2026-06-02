@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
+from typing import Dict
 
-from models.schema import Kind
+from models.schema import Entity, Kind, Relation
 from services.ingestion_service import IngestionService
 from services.read_service import ReadService
 from utils.http_client import http_client
@@ -96,6 +97,80 @@ EDGE_DEFINITIONS = [
 ]
 
 
+async def resolve_entity_by_name(
+    read_service: ReadService,
+    name: str,
+    major: str,
+    minor: str,
+) -> Entity:
+    """Find one entity by exact name and kind."""
+    matches = await read_service.get_entities(
+        Entity(name=name, kind=Kind(major=major, minor=minor))
+    )
+    if not matches:
+        raise RuntimeError(f"Entity not found: {name} ({major}/{minor})")
+    if len(matches) > 1:
+        logger.warning(
+            "Multiple matches for %s (%s/%s); using first id=%s",
+            name,
+            major,
+            minor,
+            matches[0].id,
+        )
+    return matches[0]
+
+
+async def resolve_entity_by_id(read_service: ReadService, entity_id: str) -> Entity:
+    """Find one entity by ID via the search endpoint."""
+    matches = await read_service.get_entities(Entity(id=entity_id))
+    if not matches:
+        raise RuntimeError(f"Entity not found by id: {entity_id}")
+    if len(matches) > 1:
+        logger.warning("Multiple matches for id=%s; using first", entity_id)
+    return matches[0]
+
+
+async def resolve_ministry_ids_from_person(read_service: ReadService) -> Dict[str, str]:
+    """
+    Resolve MOE/MOJ/MOD ministry IDs from person -> AS_MINISTER relations at TODAY.
+    """
+    person = await resolve_entity_by_name(
+        read_service,
+        PERSON_ROOT["name"],
+        PERSON_ROOT["kind"].major,
+        PERSON_ROOT["kind"].minor,
+    )
+    logger.info("Resolved root person id=%s", person.id)
+
+    minister_rels = await read_service.fetch_relations(
+        person.id,
+        Relation(name="AS_MINISTER", activeAt=TODAY),
+    )
+    if not minister_rels:
+        raise RuntimeError(
+            f"No AS_MINISTER relations found for person id={person.id} at activeAt={TODAY}"
+        )
+
+    expected_by_name: Dict[str, str] = {
+        expected_name: code for code, expected_name in EXPECTED_MINISTRIES.items()
+    }
+    mapped: Dict[str, str] = {}
+    for rel in minister_rels:
+        ministry = await resolve_entity_by_id(read_service, rel.relatedEntityId)
+        code = expected_by_name.get(ministry.name)
+        if code:
+            mapped[code] = ministry.id
+
+    missing_keys = [code for code in EXPECTED_MINISTRIES if code not in mapped]
+
+    if missing_keys:
+        raise RuntimeError(
+            "Missing expected ministries from AS_MINISTER traversal: "
+            + ", ".join(f"{code}: {EXPECTED_MINISTRIES[code]}" for code in missing_keys)
+        )
+    return mapped
+
+
 async def run() -> None:
     """Bootstrap clients and print scaffold status."""
     await http_client.start()
@@ -108,9 +183,11 @@ async def run() -> None:
         logger.info("TODAY=%s", TODAY)
         logger.info("Loaded %d new node definitions.", len(NEW_NODES))
         logger.info("Loaded %d edge definitions.", len(EDGE_DEFINITIONS))
+        ministry_ids = await resolve_ministry_ids_from_person(read_service)
+        logger.info("Resolved ministries from person traversal: %s", ministry_ids)
 
         # Prevent lint warnings for currently-unused service instances.
-        _ = (read_service, ingestion_service)
+        _ = ingestion_service
     finally:
         await http_client.close()
 
