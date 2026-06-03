@@ -37,6 +37,8 @@ from utils.http_client import http_client
 from utils.logger import logger
 from utils.util_functions import Util
 
+from department_rti_attributes import write_department_rti_attributes
+
 
 # Runtime date used across relation/attribute temporal fields.
 TODAY = date.today().isoformat()
@@ -401,9 +403,16 @@ async def run() -> None:
         all_entity_ids.update(created_node_ids)
         await write_relationships(ingestion_service, all_entity_ids)
         logger.info("Wrote %d relationships successfully.", len(EDGE_DEFINITIONS))
-
-        # Prevent lint warnings for currently-unused service instances.
-        _ = (ingestion_service, created_node_ids, all_entity_ids)
+        await write_department_rti_attributes(
+            ingestion_service,
+            read_service,
+            department_ids,
+            NOW_TS,
+        )
+        logger.info(
+            "Wrote rti_statuses for %d departments.",
+            len(department_ids),
+        )
     finally:
         await http_client.close()
 

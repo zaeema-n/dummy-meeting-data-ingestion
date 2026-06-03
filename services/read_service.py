@@ -116,17 +116,15 @@ class ReadService:
         
         url = f"{READ_BASE_URL}/v1/entities/{stripped_entity_id}/attributes/{stripped_attribute_name}"
         headers = {"Content-Type": "application/json"}
-        
-        # Build query parameters
-        params = {}
-        if startTime:
-            params["startTime"] = startTime
-        if endTime:
-            params["endTime"] = endTime
-        if fields:
-            # Handle array query parameter - aiohttp expects it as a list
-            params["fields"] = fields
 
-        async with self.session.get(url, headers=headers, params=params) as response:
+        payload = {}
+        if startTime:
+            payload["startTime"] = startTime
+        if endTime:
+            payload["endTime"] = endTime
+        if fields:
+            payload["fields"] = fields
+
+        async with self.session.post(url, json=payload, headers=headers) as response:
             data = await handle_api_response(response, error_prefix="Failed to get entity attribute")
             return data

@@ -58,6 +58,7 @@ What it does:
 - Traverses `AS_DEPARTMENT` to resolve departments (`UGC`, `TVEC`, `OMP`, `DMC`)
 - Creates 8 new entities (Document/act and Event/meeting)
 - Writes 16 relationships (one `PUT` per edge; required because duplicate relation keys in one update are not yet supported by OpenGIN)
+- Writes `rti_statuses` tabular attributes on each department (`UGC`, `TVEC`, `OMP`, `DMC`); data and write logic live in [`scripts/department_rti_attributes.py`](scripts/department_rti_attributes.py)
 
 Run:
 
@@ -71,3 +72,4 @@ python extend_legal_graph.py
 - The script is intentionally hardcoded for this ingestion task.
 - Relationship IDs are generated with `uuid4()` at write time.
 - Re-running creates new nodes again (not fully idempotent for entity creation).
+- `rti_statuses` writes are skipped when the attribute already exists for the script’s `startTime` (same day re-run).
