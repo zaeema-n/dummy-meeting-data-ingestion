@@ -38,6 +38,7 @@ from utils.logger import logger
 from utils.util_functions import Util
 
 from department_rti_attributes import write_department_rti_attributes
+from node_metadata import write_act_metadata, write_meeting_metadata
 
 
 # Runtime date used across relation/attribute temporal fields.
@@ -403,6 +404,9 @@ async def run() -> None:
         all_entity_ids.update(created_node_ids)
         await write_relationships(ingestion_service, all_entity_ids)
         logger.info("Wrote %d relationships successfully.", len(EDGE_DEFINITIONS))
+        await write_act_metadata(ingestion_service, read_service, all_entity_ids)
+        await write_meeting_metadata(ingestion_service, read_service, all_entity_ids)
+        logger.info("Wrote act and meeting metadata.")
         await write_department_rti_attributes(
             ingestion_service,
             read_service,

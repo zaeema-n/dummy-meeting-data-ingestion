@@ -59,7 +59,7 @@ class IngestionService:
     async def update_entity(self, entity_id: str, entity: EntityCreate):
         url = f"{INGESTION_BASE_URL}/entities/{entity_id}"
         headers = {"Content-Type": "application/json"}
-        payload = entity.model_dump()
+        payload = entity.model_dump(exclude_defaults=True)
         # Include the id in the payload as required by the API
         payload["id"] = entity_id
 

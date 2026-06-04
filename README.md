@@ -58,6 +58,7 @@ What it does:
 - Traverses `AS_DEPARTMENT` to resolve departments (`UGC`, `TVEC`, `OMP`, `DMC`)
 - Creates 8 new entities (Document/act and Event/meeting)
 - Writes 16 relationships (one `PUT` per edge; required because duplicate relation keys in one update are not yet supported by OpenGIN)
+- Writes metadata on 4 act nodes and 3 meeting nodes from [`data/act_metadata.json`](data/act_metadata.json) and [`data/meeting_metadata.json`](data/meeting_metadata.json) as OpenGIN `{key, value}` arrays (logic in [`scripts/node_metadata.py`](scripts/node_metadata.py))
 - Writes `rti_statuses` tabular attributes on each department (`UGC`, `TVEC`, `OMP`, `DMC`); data and write logic live in [`scripts/department_rti_attributes.py`](scripts/department_rti_attributes.py)
 
 Run:
@@ -72,4 +73,4 @@ python extend_legal_graph.py
 - The script is intentionally hardcoded for this ingestion task.
 - Relationship IDs are generated with `uuid4()` at write time.
 - Re-running creates new nodes again (not fully idempotent for entity creation).
-- `rti_statuses` writes are skipped when the attribute already exists for the script’s `startTime` (same day re-run).
+- Act/meeting metadata and `rti_statuses` writes are skipped when data already exists on the target entity.

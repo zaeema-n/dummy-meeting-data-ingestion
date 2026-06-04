@@ -1,0 +1,170 @@
+[
+  {
+    "entity_key": "UGC_Act",
+    "metadata": [
+      {
+        "key": "related_documents",
+        "value": [
+          "url-to-doc"
+        ]
+      },
+      {
+        "key": "content",
+        "value": {
+          "establishments": {
+            "University Grants Commission": {
+              "node_id": "UGC_NODE_ID",
+              "mandate": {
+                "quote": "There shall be established a University Grants Commission (hereinafter referred to as the 'Commission')",
+                "section": "Section 2(1)",
+                "summary": "Governing body for the University Grants Commission"
+              },
+              "meetings": {
+                "UGC Commission Meeting": {
+                  "node_id": "UGC_COMM_MEETING_NODE_ID",
+                  "frequency": {
+                    "quote": "The Board shall meet at least once in every month.",
+                    "section": "Section 12(1)",
+                    "summary": "Monthly",
+                    "minimum_frequency": true
+                  },
+                  "required_participants": {
+                    "quote": "The Chairman of the Commission shall preside at all meetings of the Commission. In the absence of the Chairman from any meeting of the Commission, the Vice Chairman shall preside at such meeting",
+                    "section": "Section 2",
+                    "summary": "The chairman and 5 appointed members"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "entity_key": "TVEC_Act",
+    "metadata": [
+      {
+        "key": "related_documents",
+        "value": [
+          "url-to-doc"
+        ]
+      },
+      {
+        "key": "content",
+        "value": {
+          "establishments": {
+            "Tertiary and Vocational Education Commission": {
+              "node_id": "TVEC_NODE_ID",
+              "mandate": {
+                "quote": "There shall be established a Commission which shall be called the Tertiary and Vocational Education Commission (hereinafter referred to as 'the Commission').",
+                "section": "Section 2(1)",
+                "summary": "Governing body for TVEC"
+              },
+              "meetings": {
+                "TVEC Meeting": {
+                  "node_id": "TVEC_MEETING_NODE_ID",
+                  "frequency": {
+                    "quote": "The quorum for any meeting shall be decided by the Commission.",
+                    "section": "Section 8(2)",
+                    "summary": "Decided by the Commission",
+                    "minimum_frequency": false
+                  },
+                  "required_participants": {
+                    "quote": "The Chairman shall preside at every meeting of the Commission. In the absence of the Chairman from any such meeting the members present shall elect one of the members present to preside at such meeting",
+                    "section": "Section 8(1)",
+                    "summary": "Chairman must preside"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "entity_key": "OMP_Act",
+    "metadata": [
+      {
+        "key": "related_documents",
+        "value": [
+          "url-to-doc"
+        ]
+      },
+      {
+        "key": "content",
+        "value": {
+          "establishments": {
+            "Office on Missing Persons": {
+              "node_id": "OMP_NODE_ID",
+              "mandate": {
+                "quote": "There shall be established an Office which shall be called and known as the \"Office on Missing Persons\" (hereinafter referred to as the \"OMP\").",
+                "section": "Section 3(1)",
+                "summary": "Governing body for OMP"
+              },
+              "meetings": {
+                "OMP Meeting": {
+                  "node_id": "OMP_MEETING_NODE_ID",
+                  "frequency": {
+                    "quote": "Subject to the other provisions of this Act, the OMP may make rules, to regulate the procedure in regard to the conduct of meetings of the OMP, and the transaction of business at such meetings.",
+                    "section": "Section 8(3)",
+                    "summary": "Decided by the OMP",
+                    "minimum_frequency": false
+                  },
+                  "required_participants": {
+                    "quote": "The Chairman shall preside at all meetings of the OMP. In the event of his absence from any meeting, the members of the OMP present at such meeting shall elect one of their membership to preside at such meeting",
+                    "section": "Section 8(1)",
+                    "summary": "Chairman must preside"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "entity_key": "DM_Act",
+    "metadata": [
+      {
+        "key": "related_documents",
+        "value": [
+          "url-to-doc"
+        ]
+      },
+      {
+        "key": "content",
+        "value": {
+          "establishments": {
+            "National Council for Disaster Management": {
+              "node_id": "DMC_NODE_ID",
+              "mandate": {
+                "quote": "There shall be established a body called the National Council for Disaster Management (hereinafter in this Act referred to as the 'Council').",
+                "section": "Section 2",
+                "summary": "Governing body for DMC"
+              },
+              "meetings": {
+                "DMC Meeting": {
+                  "node_id": "DMC_MEETING_NODE_ID",
+                  "frequency": {
+                    "quote": "The Council shall meet as often as may be necessary, but not less than once in every three months.",
+                    "section": "Section 2",
+                    "summary": "Once in every 3 months",
+                    "minimum_frequency": true
+                  },
+                  "required_participants": {
+                    "quote": "The President (Chairman) and the Prime Minister (Vice-Chairman).The Leader of the Opposition, along with five other Members of Parliament nominated by the Speaker in consultation with the Leader of the Opposition. Cabinet Ministers in charge of key portfolios, including but not limited to: Social Services, Health, Housing, Defence, Police, Finance, Environment, Coast Conservation, Irrigation, Power, Land, Fisheries, Foreign Affairs, Water Supply, Highways, Education, and Local Government, The Chief Ministers of every Provincial Council in Sri Lanka",
+                    "section": "3(1), 3(2), and 3(3)",
+                    "summary": "Chairman and Vice-Chairman must preside"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+]
